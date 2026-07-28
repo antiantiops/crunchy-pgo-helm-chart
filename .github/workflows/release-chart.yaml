@@ -1,0 +1,83 @@
+name: Release Helm chart
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - index.yaml
+      - '*.tgz'
+  workflow_dispatch: {}
+
+concurrency:
+  group: release-chart
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+
+      - name: Lint chart
+        run: helm lint pgo
+
+      - name: Read current chart version
+        id: chart
+        run: |
+          VERSION=$(grep '^version:' pgo/Chart.yaml | awk '{print $2}')
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Check if release already exists
+        id: check
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION="${{ steps.chart.outputs.version }}"
+          if gh release view "pgo-${VERSION}" >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Package chart
+        if: steps.check.outputs.exists == 'false'
+        run: helm package pgo
+
+      - name: Update index
+        if: steps.check.outputs.exists == 'false'
+        run: |
+          VERSION="${{ steps.chart.outputs.version }}"
+          if [ -f index.yaml ]; then
+            helm repo index . --merge index.yaml --url https://github.com/antiantiops/crunchy-pgo-helm-chart/releases/download/pgo-${VERSION}
+          else
+            helm repo index . --url https://github.com/antiantiops/crunchy-pgo-helm-chart/releases/download/pgo-${VERSION}
+          fi
+
+      - name: Publish chart archive and index
+        if: steps.check.outputs.exists == 'false'
+        run: |
+          VERSION="${{ steps.chart.outputs.version }}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add index.yaml "pgo-${VERSION}.tgz"
+          git commit -m "Release pgo-${VERSION}"
+          git push
+
+      - name: Create GitHub release
+        if: steps.check.outputs.exists == 'false'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION="${{ steps.chart.outputs.version }}"
+          APP_VERSION=$(grep '^appVersion:' pgo/Chart.yaml | awk '{print $2}' | tr -d '"')
+          gh release create "pgo-${VERSION}" \
+            "pgo-${VERSION}.tgz" \
+            --title "pgo-${VERSION}" \
+            --notes "Helm chart release pgo-${VERSION} (appVersion: ${APP_VERSION})"

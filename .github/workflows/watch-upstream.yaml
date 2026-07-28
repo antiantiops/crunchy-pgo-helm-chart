@@ -1,0 +1,75 @@
+name: Watch upstream OCI registry
+
+on:
+  schedule:
+    - cron: '30 */6 * * *'
+  workflow_dispatch: {}
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+
+      - name: Get current appVersion from Chart.yaml
+        id: current
+        run: |
+          VERSION=$(grep '^appVersion:' pgo/Chart.yaml | awk '{print $2}' | tr -d '"')
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Fetch latest from Crunchy OCI registry
+        id: latest
+        run: |
+          helm pull oci://registry.developers.crunchydata.com/crunchydata/pgo --destination /tmp/pgo-check
+          LATEST=$(tar -xOzf /tmp/pgo-check/pgo-*.tgz pgo/Chart.yaml | grep '^appVersion:' | awk '{print $2}' | tr -d '"')
+          echo "version=$LATEST" >> "$GITHUB_OUTPUT"
+
+      - name: Compare versions
+        id: compare
+        run: |
+          if [ "${{ steps.current.outputs.version }}" = "${{ steps.latest.outputs.version }}" ]; then
+            echo "up_to_date=true" >> "$GITHUB_OUTPUT"
+            echo "Already up to date: ${{ steps.current.outputs.version }}"
+          else
+            echo "up_to_date=false" >> "$GITHUB_OUTPUT"
+            echo "Update available: ${{ steps.current.outputs.version }} → ${{ steps.latest.outputs.version }}"
+          fi
+
+      - name: Update chart from upstream
+        if: steps.compare.outputs.up_to_date == 'false'
+        run: |
+          # Extract new chart into temp, then replace pgo/ contents
+          mkdir -p /tmp/pgo-new
+          tar -xzf /tmp/pgo-check/pgo-*.tgz -C /tmp/pgo-new
+          rm -rf pgo/templates pgo/crds pgo/Chart.yaml pgo/values.yaml pgo/.helmignore pgo/LICENSE.txt
+          cp -a /tmp/pgo-new/pgo/. pgo/
+
+      - name: Commit and push
+        if: steps.compare.outputs.up_to_date == 'false'
+        env:
+          CURRENT: ${{ steps.current.outputs.version }}
+          LATEST: ${{ steps.latest.outputs.version }}
+        run: |
+          set -euo pipefail
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add pgo/
+          git commit -m "chore: bump pgo ${CURRENT} → ${LATEST}"
+          git push origin HEAD:main
+
+      - name: Trigger release workflow
+        if: steps.compare.outputs.up_to_date == 'false'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          curl -sS -X POST \
+            -H "Authorization: token ${GITHUB_TOKEN}" \
+            -H "Accept: application/vnd.github.v3+json" \
+            "https://api.github.com/repos/${{ github.repository }}/actions/workflows/release-chart.yaml/dispatches" \
+            -d '{"ref":"main"}'
