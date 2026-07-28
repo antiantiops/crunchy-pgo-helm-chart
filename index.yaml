@@ -3,13 +3,13 @@ entries:
   pgo:
   - apiVersion: v2
     appVersion: 6.0.2
-    created: "2026-07-28T10:56:09.548989425Z"
+    created: "2026-07-28T10:56:38.854579887Z"
     description: Installer for PGO, the open source Postgres Operator from Crunchy
       Data
-    digest: aaca217a525d2a0c07bd6d5f699a722defb5b89b9b4baed4e2dbd4f758a72529
+    digest: 97ebf4fe870d8d9342575ced64ea118def40a07be06251809e29337837a5fa12
     name: pgo
     type: application
     urls:
     - https://github.com/antiantiops/crunchy-pgo-helm-chart/releases/download/pgo-6.0.2/pgo-6.0.2.tgz
     version: 6.0.2
-generated: "2026-07-28T10:56:09.520780415Z"
+generated: "2026-07-28T10:56:38.845147621Z"
