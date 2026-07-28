@@ -3,9 +3,8 @@ name: Release Helm chart
 on:
   push:
     branches: [main]
-    paths-ignore:
-      - index.yaml
-      - '*.tgz'
+    paths:
+      - 'pgo/**'
   workflow_dispatch: {}
 
 concurrency:
@@ -28,10 +27,10 @@ jobs:
       - name: Lint chart
         run: helm lint pgo
 
-      - name: Read current chart version
+      - name: Read chart version
         id: chart
         run: |
-          VERSION=$(grep '^version:' pgo/Chart.yaml | awk '{print $2}')
+          VERSION=$(grep '^version:' pgo/Chart.yaml | awk '{print $2}' | tr -d '"')
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Check if release already exists
@@ -55,19 +54,21 @@ jobs:
         run: |
           VERSION="${{ steps.chart.outputs.version }}"
           if [ -f index.yaml ]; then
-            helm repo index . --merge index.yaml --url https://github.com/antiantiops/crunchy-pgo-helm-chart/releases/download/pgo-${VERSION}
+            helm repo index . --merge index.yaml \
+              --url "https://github.com/${{ github.repository }}/releases/download/pgo-${VERSION}"
           else
-            helm repo index . --url https://github.com/antiantiops/crunchy-pgo-helm-chart/releases/download/pgo-${VERSION}
+            helm repo index . \
+              --url "https://github.com/${{ github.repository }}/releases/download/pgo-${VERSION}"
           fi
 
-      - name: Publish chart archive and index
+      - name: Commit index and package
         if: steps.check.outputs.exists == 'false'
         run: |
           VERSION="${{ steps.chart.outputs.version }}"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add index.yaml "pgo-${VERSION}.tgz"
-          git commit -m "Release pgo-${VERSION}"
+          git commit -m "Release pgo-${VERSION}" || echo "Nothing to commit"
           git push
 
       - name: Create GitHub release
