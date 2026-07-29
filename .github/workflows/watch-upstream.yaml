@@ -33,6 +33,7 @@ jobs:
       - name: Fetch latest from Crunchy OCI registry
         id: latest
         run: |
+          mkdir -p /tmp/pgo-upstream
           helm pull oci://registry.developers.crunchydata.com/crunchydata/pgo \
             --destination /tmp/pgo-upstream
           TGZ=$(ls /tmp/pgo-upstream/pgo-*.tgz)
